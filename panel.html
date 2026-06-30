@@ -117,16 +117,6 @@
             <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
               <span style="font-family: var(--mono); font-size: 11px; color: var(--accent); font-weight: bold; min-width: 60px;">BASE URL:</span>
               <input type="text" id="fuzz-url" class="tool-input-single" style="flex: 1; height: 26px; font-size: 11px; font-family: var(--mono); background: var(--bg3); margin: 0; padding: 4px 8px; border: 1px solid var(--border); color: var(--text); border-radius: var(--radius);" placeholder="Select a request from history...">
-              <span style="font-size: 9px; color: var(--text3); font-weight: bold; white-space: nowrap;">OAST:</span>
-              <input type="text" id="fuzz-oast-domain" value="interact.sh" style="width: 120px; height: 26px; font-size: 11px; background: var(--bg3); border: 1px solid var(--border); color: var(--text); padding: 0 6px; border-radius: var(--radius); box-sizing: border-box; font-family: var(--mono); margin: 0;">
-            </div>
-          </div>
-          <div style="margin-bottom: 10px;">
-            <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
-              <div style="flex: 1; min-width: 220px;">
-                <label>Request URL</label>
-                <input id="replay-url" type="text" class="tool-input-single" style="width: 100%; height: 26px; font-size: 11px; background: var(--bg3); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: var(--radius); font-family: var(--mono);" placeholder="Request URL for replay or attack">
-              </div>
             </div>
           </div>
 
@@ -145,15 +135,9 @@
             </div>
           </div>
 
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 10px;">
-            <div>
-              <label>Headers</label>
-              <textarea id="replay-headers" class="code-editor" rows="6" placeholder="Content-Type: application/json&#10;Authorization: Bearer xxx"></textarea>
-            </div>
-            <div>
-              <label>Body</label>
-              <textarea id="replay-body" class="code-editor" rows="6" placeholder="Request body (JSON, form data, etc.)"></textarea>
-            </div>
+          <div class="attack-editors-row" style="display: flex; gap: 12px; margin-bottom: 10px; width: 100%; box-sizing: border-box;">
+            <textarea id="replay-headers" class="code-editor" style="flex: 1 1 50%; width: 0; min-height: 120px; box-sizing: border-box;" rows="6" placeholder="Headers&#10;Content-Type: application/json&#10;Authorization: Bearer xxx"></textarea>
+            <textarea id="replay-body" class="code-editor" style="flex: 1 1 50%; width: 0; min-height: 120px; box-sizing: border-box;" rows="6" placeholder="Body&#10;Request body (JSON, form data, etc.)"></textarea>
           </div>
 
           <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px;">
@@ -177,6 +161,10 @@
             </div>
             <div id="fuzz-param-list-container" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;">
               <div class="empty-hint" style="text-align: center; margin-top: 20px;">No targets identified. Choose a request from history or add your own.</div>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);">
+              <span style="font-size: 9px; color: var(--text3); font-weight: bold; white-space: nowrap;">OAST:</span>
+              <input type="text" id="fuzz-oast-domain" value="interact.sh" style="flex: 1; height: 26px; font-size: 11px; background: var(--bg3); border: 1px solid var(--border); color: var(--text); padding: 0 6px; border-radius: var(--radius); box-sizing: border-box; font-family: var(--mono); margin: 0;">
             </div>
           </div>
 

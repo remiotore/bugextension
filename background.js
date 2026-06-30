@@ -7,6 +7,21 @@ const connectedPanels = new Map(); // Track active devtools tabs: tabId -> port
 const requestMap = new Map();
 const interceptState = new Map();
 
+function normalizeTabId(tabId) {
+  const id = Number(tabId);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function isTargetTab(tabId) {
+  const id = normalizeTabId(tabId);
+  return id !== null && connectedPanels.has(id);
+}
+
+function getPanelPort(tabId) {
+  const id = normalizeTabId(tabId);
+  return id !== null ? connectedPanels.get(id) : null;
+}
+
 // ── Endpoint Hunter state ──
 let endpoints = new Map();
 let dynamicPatterns = new Map();
@@ -147,14 +162,9 @@ function parseRequestBody(requestBody) {
 
 // ── 1. BEFORE REQUEST LISTENER ──
 function handleBeforeRequest(details) {
-  if (details.url.startsWith('moz-extension://')) return;
+  if (details.url.startsWith('moz-extension://') || details.url.startsWith('chrome-extension://')) return;
 
-  if (!connectedPanels.has(details.tabId)) return;
-
-  const intercept = interceptState.get(details.tabId);
-  if (intercept && intercept.enabled) {
-    console.log('Bug Extension: intercept active for tab', details.tabId, details.url);
-  }
+  if (!isTargetTab(details.tabId)) return;
 
   requestMap.set(details.requestId, {
     requestId: details.requestId,
@@ -170,25 +180,50 @@ function handleBeforeRequest(details) {
 
 // ── 2. HEADERS LISTENER ──
 function handleBeforeSendHeaders(details) {
-  if (!connectedPanels.has(details.tabId)) return;
+  if (!isTargetTab(details.tabId)) return;
 
-  const intercept = interceptState.get(details.tabId);
-  let modifiedHeaders = details.requestHeaders ? details.requestHeaders.slice() : [];
+  const tabId = normalizeTabId(details.tabId);
+  const intercept = interceptState.get(tabId);
+  const req = requestMap.get(details.requestId);
+
   if (intercept && intercept.enabled) {
-    return { requestHeaders: modifiedHeaders };
+    const held = {
+      ...(req || {}),
+      requestId: details.requestId,
+      url: details.url,
+      method: details.method,
+      type: details.type,
+      timeStamp: req?.timeStamp || Date.now(),
+      requestBody: req?.requestBody || null,
+      tabId,
+      requestHeaders: details.requestHeaders || [],
+      intercepted: true
+    };
+
+    const targetPort = getPanelPort(tabId);
+    if (targetPort) {
+      try {
+        targetPort.postMessage({ type: 'intercepted_request', data: held });
+      } catch {
+        connectedPanels.delete(tabId);
+      }
+    }
+
+    requestMap.delete(details.requestId);
+    return { cancel: true };
   }
 
-  const req = requestMap.get(details.requestId);
   if (req) {
     req.requestHeaders = details.requestHeaders;
   }
 }
 
 function handleCompleted(details) {
-  if (details.url.startsWith('moz-extension://')) return;
+  if (details.url.startsWith('moz-extension://') || details.url.startsWith('chrome-extension://')) return;
 
-  if (!connectedPanels.has(details.tabId)) return;
+  if (!isTargetTab(details.tabId)) return;
 
+  const tabId = normalizeTabId(details.tabId);
   const req = requestMap.get(details.requestId);
   if (req) {
     req.statusCode = details.statusCode;
@@ -196,13 +231,13 @@ function handleCompleted(details) {
     req.responseHeaders = details.responseHeaders;
 
     const message = { type: 'captured_request', data: req };
-    
-    const targetPort = connectedPanels.get(details.tabId);
+
+    const targetPort = getPanelPort(tabId);
     if (targetPort) {
-      try { 
-        targetPort.postMessage(message); 
-      } catch { 
-        connectedPanels.delete(details.tabId); 
+      try {
+        targetPort.postMessage(message);
+      } catch {
+        connectedPanels.delete(tabId);
       }
     }
     requestMap.delete(details.requestId);
@@ -289,22 +324,23 @@ browser.runtime.onConnect.addListener((port) => {
 
   port.onMessage.addListener((msg) => {
     if (msg.type === "init_panel") {
-      const senderTabId = port && port.sender && port.sender.tab && port.sender.tab.id;
-      const tabId = (typeof senderTabId === 'number') ? senderTabId : Number(msg.tabId);
-      if (!Number.isInteger(tabId)) return;
+      const tabId = normalizeTabId(msg.tabId);
+      if (!tabId) return;
 
       for (const [k, v] of connectedPanels.entries()) {
         if (v === port || k === tabId) connectedPanels.delete(k);
       }
       connectedPanels.set(tabId, port);
+      try {
+        port.postMessage({ type: 'panel_registered', tabId });
+      } catch (e) {}
       return;
     }
 
     if (msg.type === 'set_intercept') {
-      const senderTabId = port && port.sender && port.sender.tab && port.sender.tab.id;
-      let tabId = Number.isInteger(Number(msg.tabId)) ? Number(msg.tabId) : (typeof senderTabId === 'number' ? senderTabId : null);
+      let tabId = normalizeTabId(msg.tabId);
       if (!tabId) {
-        const matched = Array.from(connectedPanels.entries()).find(([id, panelPort]) => panelPort === port);
+        const matched = Array.from(connectedPanels.entries()).find(([, panelPort]) => panelPort === port);
         tabId = matched ? matched[0] : null;
       }
       if (tabId) {
@@ -312,52 +348,9 @@ browser.runtime.onConnect.addListener((port) => {
           enabled: Boolean(msg.enabled),
           rule: msg.rule || null
         });
-        console.log('Bug Extension: intercept config updated', { tabId, intercept: interceptState.get(tabId) });
-      }
-      return;
-    }
-
-    // Perform a request inside the target tab so webRequest sees it with the correct tabId
-    if (msg.type === 'perform_request' && msg.tabId && msg.request) {
-      const tabId = Number(msg.tabId);
-      const req = msg.request;
-
-      console.log('Bug Extension: perform_request received', { tabId, url: req.url, method: req.method });
-
-      // Build safe code to run inside the tab to execute fetch
-      try {
-        const code = `(() => {
-          try {
-            const url = ${JSON.stringify(req.url)};
-            const method = ${JSON.stringify(req.method || 'GET')};
-            const headers = ${JSON.stringify(req.headers || {})};
-            const body = ${JSON.stringify(req.body || null)};
-            // Use fetch in page context
-            fetch(url, { method, headers, body, credentials: 'include' })
-              .then(r => r.text().then(t => { try { console.log('Bug Extension: performed request', method, url, r.status, t && t.length); } catch(e){} }))
-              .catch(e => { try { console.warn('Bug Extension: perform_request error', e); } catch(e){} });
-          } catch(e) { try { console.warn('Bug Extension: perform_request inner error', e); } catch(e){} }
-        })();`;
-
-        browser.tabs.executeScript(tabId, { code }).then(() => {
-          // Echo back to the panel that we sent the request (instant feedback)
-          try {
-            const p = connectedPanels.get(tabId);
-            if (p) p.postMessage({ type: 'sent_request', data: req });
-            console.log('Bug Extension: perform_request executed script for tab', tabId);
-          } catch (e) {
-            console.warn('Bug Extension: perform_request postMessage failed', e);
-          }
-        }).catch(err => {
-          console.warn('Bug Extension: executeScript failed for perform_request', err);
-          // notify panel of failure if possible
-          try {
-            const p = connectedPanels.get(tabId);
-            if (p) p.postMessage({ type: 'perform_request_error', error: String(err), data: req });
-          } catch (e) {}
-        });
-      } catch (e) {
-        console.warn('Bug Extension: failed to perform_request', e);
+        try {
+          port.postMessage({ type: 'intercept_state', tabId, enabled: Boolean(msg.enabled) });
+        } catch (e) {}
       }
       return;
     }

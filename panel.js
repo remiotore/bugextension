@@ -8,25 +8,180 @@
 // At the absolute top of your panel.js file
 const port = browser.runtime.connect({ name: "bug-panel" });
 
+function getCurrentTabId() {
+  const tabId = browser.devtools?.inspectedWindow?.tabId;
+  return typeof tabId === 'number' && tabId > 0 ? tabId : null;
+}
+
 function registerCurrentPanelTarget() {
-  if (browser.devtools && browser.devtools.inspectedWindow && typeof browser.devtools.inspectedWindow.tabId === 'number') {
-    port.postMessage({ type: "init_panel", tabId: browser.devtools.inspectedWindow.tabId });
+  const tabId = getCurrentTabId();
+  if (tabId !== null) {
+    port.postMessage({ type: "init_panel", tabId });
   }
+}
+
+registerCurrentPanelTarget();
+
+function headersArrayToObject(headers) {
+  const out = {};
+  (headers || []).forEach(h => {
+    if (h && h.name) out[h.name] = h.value || '';
+  });
+  return out;
+}
+
+function headersObjectToArray(headers) {
+  return Object.entries(headers || {}).map(([name, value]) => ({ name, value: String(value) }));
+}
+
+function performRequestInPage(req) {
+  return new Promise((resolve, reject) => {
+    if (!browser.devtools?.inspectedWindow?.eval) {
+      reject(new Error('DevTools inspectedWindow API unavailable'));
+      return;
+    }
+
+    const fetchBody = req.body != null && req.body !== '' ? JSON.stringify(req.body) : 'null';
+    const code = `(async () => {
+      try {
+        const res = await fetch(${JSON.stringify(req.url)}, {
+          method: ${JSON.stringify(req.method || 'GET')},
+          headers: ${JSON.stringify(req.headers || {})},
+          body: ${fetchBody},
+          credentials: 'include',
+          cache: 'no-store'
+        });
+        const text = await res.text();
+        return {
+          ok: true,
+          status: res.status,
+          statusText: res.statusText,
+          bodyLength: text.length
+        };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    })()`;
+
+    browser.devtools.inspectedWindow.eval(code, (result, exceptionInfo) => {
+      if (exceptionInfo && exceptionInfo.isException) {
+        reject(new Error(exceptionInfo.value || 'Request failed in page context'));
+        return;
+      }
+      if (result && result.ok === false) {
+        reject(new Error(result.error || 'Request failed'));
+        return;
+      }
+      resolve(result || { ok: true });
+    });
+  });
+}
+
+// ── Shared State ──
+let capturedRequests = [];
+let filteredRequests = [];
+let selectedRequest = null;
+let isPaused = false;
+let activeTheme = 'dark';
+let activeEndpoints = [];
+let interceptEnabled = false;
+let useDevtoolsNetworkCapture = false;
+
+function recordCapturedRequest(req, source = 'network') {
+  if (!req || !req.url) return;
+  if (isPaused) return;
+
+  const requestId = req.requestId || `capture-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  if (capturedRequests.some(existing => existing.requestId === requestId)) return;
+
+  const captured = {
+    requestId,
+    url: req.url,
+    method: (req.method || 'GET').toUpperCase(),
+    type: req.type || source,
+    timeStamp: req.timeStamp || Date.now(),
+    requestBody: req.requestBody || null,
+    tabId: req.tabId ?? getCurrentTabId(),
+    initiator: req.initiator || '',
+    requestHeaders: req.requestHeaders || [],
+    statusCode: req.statusCode ?? null,
+    statusLine: req.statusLine || '',
+    responseHeaders: req.responseHeaders || [],
+    intercepted: Boolean(req.intercepted)
+  };
+
+  capturedRequests.push(captured);
+  updateRequestCountBadge();
+  updateDomainFilters(captured.url);
+  updateExtensionFilters();
+  applyRequestFilters();
+}
+
+function initNetworkCapture() {
+  if (!browser.devtools?.network?.onRequestFinished) return;
+  useDevtoolsNetworkCapture = true;
+
+  browser.devtools.network.onRequestFinished.addListener((harEntry) => {
+    if (isPaused) return;
+
+    const request = harEntry.request || {};
+    const response = harEntry.response || {};
+    const req = {
+      requestId: harEntry.id || harEntry.requestId || `har-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+      url: request.url,
+      method: request.method,
+      type: 'devtools',
+      timeStamp: Date.now(),
+      requestBody: request.postData?.text || null,
+      tabId: getCurrentTabId(),
+      requestHeaders: request.headers || [],
+      statusCode: response.status,
+      statusLine: response.statusText ? `HTTP ${response.status} ${response.statusText}` : '',
+      responseHeaders: response.headers || []
+    };
+
+    recordCapturedRequest(req, 'devtools');
+  });
+
+  if (browser.devtools.network.onNavigated) {
+    browser.devtools.network.onNavigated.addListener(() => {
+      registerCurrentPanelTarget();
+    });
+  }
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // Send the active tab's ID immediately to register this exact window context
 registerCurrentPanelTarget();
-
-// Your existing panel message receiver:
-port.onMessage.addListener((msg) => {
-  if (msg.type === 'captured_request') {
-     // Render your network request securely here
-     console.log("Captured strictly from this tab:", msg.data);
-  }
-});
+setTimeout(registerCurrentPanelTarget, 250);
+setTimeout(registerCurrentPanelTarget, 1000);
 
 // Also accept 'sent_request' echoes for immediate UI feedback
 port.onMessage.addListener((msg) => {
+  if (msg.type === 'panel_registered') {
+    console.log('Bug Extension panel registered for tab', msg.tabId);
+    return;
+  }
+
+  if (msg.type === 'intercept_state') {
+    interceptEnabled = Boolean(msg.enabled);
+    const btn = document.getElementById("toggle-intercept-btn");
+    if (btn) {
+      btn.textContent = interceptEnabled ? "Intercept ON" : "Intercept OFF";
+      btn.classList.toggle("active", interceptEnabled);
+    }
+    return;
+  }
+
+  if (msg.type === 'intercepted_request') {
+    recordCapturedRequest(msg.data, 'intercept');
+    showInterceptedRequest(msg.data);
+    return;
+  }
+
   if (msg.type === 'sent_request') {
     try {
       const req = msg.data;
@@ -46,11 +201,7 @@ port.onMessage.addListener((msg) => {
       };
 
       // Add to captured requests and refresh UI
-      capturedRequests.push(captured);
-      updateRequestCountBadge();
-      updateDomainFilters(captured.url);
-      updateExtensionFilters();
-      applyRequestFilters();
+      recordCapturedRequest(captured, 'sent');
 
       // Also write into the fuzz results console for immediate feedback
       try {
@@ -67,22 +218,14 @@ port.onMessage.addListener((msg) => {
   }
 });
 
-// ── Shared State ──
-let capturedRequests = [];
-let filteredRequests = [];
-let selectedRequest = null;
-let isPaused = false;
-let activeTheme = 'dark';
-let activeEndpoints = [];
-let interceptEnabled = false;
-
-// ── DOM Initialization & Event Listeners ──
 document.addEventListener("DOMContentLoaded", () => {
   initTabs();
   initTheme();
   initRequestTab();
+  initNetworkCapture();
   initResizeHandle();
   initContextMenu();
+  registerCurrentPanelTarget();
 
   // Load initial endpoint data for inline findings
   loadEndpointsFromStorage();
@@ -95,17 +238,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-// Listen for messages from background script via Port
+// Listen for messages from background script via Port (fallback capture + intercept)
 port.onMessage.addListener((msg) => {
-  if (isPaused) return;
-
-  if (msg.type === 'captured_request') {
-    const req = msg.data;
-    capturedRequests.push(req);
-    updateRequestCountBadge();
-    updateDomainFilters(req.url);
-    updateExtensionFilters();
-    applyRequestFilters();
+  if (msg.type === 'captured_request' && !useDevtoolsNetworkCapture) {
+    recordCapturedRequest(msg.data, 'webRequest');
   }
 });
 
@@ -523,7 +659,6 @@ function selectRequestItem(req) {
 
   // Populate Replay Panel fields
   document.getElementById("replay-method").value = req.method;
-  document.getElementById("replay-url").value = req.url;
 
   let headersString = "";
   if (req.requestHeaders) {
@@ -558,9 +693,9 @@ function clearRequests() {
 }
 
 // ── Replay Functionality ──
-function executeReplay() {
+async function executeReplay() {
   const method = document.getElementById("replay-method").value;
-  const url = document.getElementById("replay-url").value;
+  const url = document.getElementById("fuzz-url").value.trim();
   const headersRaw = document.getElementById("replay-headers").value;
   const body = document.getElementById("replay-body").value;
   const resultsConsole = document.getElementById("fuzz-results");
@@ -579,27 +714,23 @@ function executeReplay() {
     }
   });
 
-  const options = { method, headers };
-  if (["POST", "PUT", "PATCH", "DELETE"].includes(method.toUpperCase()) && body) {
-    options.body = body;
+  const req = { method: method.toUpperCase(), url, headers, body: null };
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method) && body) {
+    req.body = body;
   }
 
   if (resultsConsole) {
-    resultsConsole.innerHTML += `<div style="color: var(--accent);">↳ Sending request: <strong>${escapeHtml(method)}</strong> ${escapeHtml(url)}</div>`;
+    resultsConsole.innerHTML += `<div style="color: var(--accent);">↳ Sending request: <strong>${escapeHtml(req.method)}</strong> ${escapeHtml(url)}</div>`;
     resultsConsole.scrollTop = resultsConsole.scrollHeight;
   }
 
   try {
-    const req = { method: options.method || 'GET', url, headers: options.headers || {}, body: options.body || null };
-    try {
-      console.log('Panel: requesting background to perform request', req);
-      port.postMessage({ type: 'perform_request', tabId: (browser.devtools && browser.devtools.inspectedWindow) ? browser.devtools.inspectedWindow.tabId : undefined, request: req });
-    } catch (e) {
-      console.warn('Panel: perform_request postMessage failed', e);
-      if (resultsConsole) {
-        resultsConsole.innerHTML += `<div style="color: var(--danger);">Replay Failed: ${escapeHtml(e.message)}</div>`;
-        resultsConsole.scrollTop = resultsConsole.scrollHeight;
-      }
+    registerCurrentPanelTarget();
+    const result = await performRequestInPage(req);
+    if (resultsConsole) {
+      const status = result?.status || '---';
+      resultsConsole.innerHTML += `<div style="color: var(--accent2);">↳ Response status: <strong>${escapeHtml(String(status))}</strong></div>`;
+      resultsConsole.scrollTop = resultsConsole.scrollHeight;
     }
   } catch (e) {
     if (resultsConsole) {
@@ -619,18 +750,61 @@ function toggleInterceptMode() {
   sendInterceptConfig();
 }
 
+function showInterceptedRequest(req) {
+  const resultsConsole = document.getElementById("fuzz-results");
+  if (resultsConsole) {
+    resultsConsole.innerHTML += `<div style="color: var(--warning, #ffb347); margin-top: 6px;">⛔ Intercepted: <strong>${escapeHtml(req.method)}</strong> ${escapeHtml(req.url)} <button class="small-btn intercept-forward-btn" data-request-id="${escapeHtml(req.requestId)}" style="margin-left: 8px;">Forward</button></div>`;
+    resultsConsole.scrollTop = resultsConsole.scrollHeight;
 
-function getCurrentTabId() {
-  if (browser.devtools && browser.devtools.inspectedWindow && typeof browser.devtools.inspectedWindow.tabId === 'number') {
-    return browser.devtools.inspectedWindow.tabId;
+    const forwardBtn = resultsConsole.querySelector('.intercept-forward-btn:last-of-type');
+    if (forwardBtn) {
+      forwardBtn.addEventListener('click', () => forwardInterceptedRequest(req));
+    }
   }
-  return null;
+
+  document.querySelectorAll("#top-nav .nav-tab").forEach(t => t.classList.remove("active"));
+  document.getElementById("tab-btn-requests")?.classList.add("active");
+  document.querySelectorAll(".tab-panel").forEach(panel => panel.classList.remove("active"));
+  document.getElementById("tab-requests")?.classList.add("active");
+  document.querySelector('[data-detail="attack"]')?.click();
+  selectRequestItem(req);
 }
+
+async function forwardInterceptedRequest(req) {
+  const headers = headersArrayToObject(req.requestHeaders);
+  const replayReq = {
+    method: req.method || 'GET',
+    url: req.url,
+    headers,
+    body: req.requestBody || null
+  };
+
+  const resultsConsole = document.getElementById("fuzz-results");
+  if (resultsConsole) {
+    resultsConsole.innerHTML += `<div style="color: var(--accent);">↪ Forwarding intercepted request...</div>`;
+    resultsConsole.scrollTop = resultsConsole.scrollHeight;
+  }
+
+  try {
+    registerCurrentPanelTarget();
+    const result = await performRequestInPage(replayReq);
+    if (resultsConsole) {
+      resultsConsole.innerHTML += `<div style="color: var(--accent2);">↪ Forwarded — status ${escapeHtml(String(result?.status || '---'))}</div>`;
+      resultsConsole.scrollTop = resultsConsole.scrollHeight;
+    }
+  } catch (e) {
+    if (resultsConsole) {
+      resultsConsole.innerHTML += `<div style="color: var(--danger);">Forward failed: ${escapeHtml(e.message)}</div>`;
+      resultsConsole.scrollTop = resultsConsole.scrollHeight;
+    }
+  }
+}
+
 
 function sendInterceptConfig() {
   try {
     const tabId = getCurrentTabId();
-    console.log('Panel: sending intercept config', { tabId, enabled: interceptEnabled });
+    registerCurrentPanelTarget();
     port.postMessage({ type: 'set_intercept', tabId, enabled: interceptEnabled });
   } catch (e) {
     console.warn('Panel: failed to send intercept config', e);
@@ -906,35 +1080,33 @@ async function executeAttackMatrixPipeline() {
         fetchOptions.method = 'POST';
         fetchOptions.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
         fetchOptions.body = formBodyBuilder.toString();
-      } else if (hasBody && bodyType === 'json' && Object.keys(jsonBodyObj).length > 0) {
+      } else       if (hasBody && bodyType === 'json' && Object.keys(jsonBodyObj).length > 0) {
         fetchOptions.method = 'POST';
         fetchOptions.headers = { 'Content-Type': 'application/json' };
         fetchOptions.body = JSON.stringify(jsonBodyObj);
       }
 
+      const req = {
+        method: (fetchOptions.method || 'GET').toUpperCase(),
+        url: executionUrl,
+        headers: fetchOptions.headers || {},
+        body: fetchOptions.body || null
+      };
+
       try {
-        // Build request object and ask background to execute it inside the inspected tab
-        const req = {
-          method: (fetchOptions.method || 'GET').toUpperCase(),
-          url: executionUrl,
-          headers: fetchOptions.headers || {},
-          body: fetchOptions.body || null
-        };
-
-        // Send to background to perform in-tab (so webRequest captures it)
-        try { port.postMessage({ type: 'perform_request', tabId: (browser.devtools && browser.devtools.inspectedWindow) ? browser.devtools.inspectedWindow.tabId : undefined, request: req }); } catch (e) { console.warn('Fuzzer: failed to request background perform_request', e); }
-
-        // Immediate feedback in results console — webRequest will also report captures separately
+        registerCurrentPanelTarget();
+        const result = await performRequestInPage(req);
         resultsConsole.innerHTML += `
           <div style="margin-bottom: 4px; padding-bottom: 2px; border-bottom: 1px dashed var(--border);">
             <span style="color: var(--text3); font-size: 10px;">[${escapeHtml(fuzzTarget.key)}]</span> Payload: <code style="color: var(--accent2); font-weight: bold;">${escapeHtml(currentPayload)}</code><br>
-            ↳ <span class="meta-badge s2xx">SENT</span> <code style="color: var(--accent);">${escapeHtml(req.method)}</code> ${escapeHtml(req.url)}
+            ↳ <span class="meta-badge s2xx">${escapeHtml(String(result?.status || 'SENT'))}</span> <code style="color: var(--accent);">${escapeHtml(req.method)}</code> ${escapeHtml(req.url)}
           </div>`;
       } catch (networkErr) {
         resultsConsole.innerHTML += `<div style="color: var(--danger); margin-bottom: 4px;">❌ Drop [${escapeHtml(fuzzTarget.key)}=${escapeHtml(currentPayload)}]: ${escapeHtml(networkErr.message)}</div>`;
       }
       resultsConsole.scrollTop = resultsConsole.scrollHeight;
       totalRequests++;
+      await delay(25);
     }
   }
 
@@ -1091,7 +1263,6 @@ function renderEndpointsList() {
       document.getElementById("tab-btn-requests").click();
       document.querySelector('[data-detail="attack"]').click();
       document.getElementById("replay-method").value = ep.method;
-      document.getElementById("replay-url").value = ep.url;
       document.getElementById("fuzz-url").value = ep.url;
       document.getElementById("replay-body").value = "";
 
@@ -1100,7 +1271,7 @@ function renderEndpointsList() {
         let paramsArr = [];
         Object.entries(ep.latestValues).forEach(([k, v]) => paramsArr.push(`${k}=${v}`));
         if (ep.method === "GET" && paramsArr.length > 0) {
-          document.getElementById("replay-url").value = `${ep.url}?${paramsArr.join('&')}`;
+          document.getElementById("fuzz-url").value = `${ep.url}?${paramsArr.join('&')}`;
         } else if (paramsArr.length > 0) {
           headerStr = "Content-Type: application/x-www-form-urlencoded\\n";
           document.getElementById("replay-body").value = paramsArr.join('&');
