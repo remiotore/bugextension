@@ -2,29 +2,19 @@
 const TAG_DETECTION = {
   SENSITIVE_PATHS: [
     '/admin', '/api', '/auth', '/login', '/logout', '/token', '/user', '/users', '/account', '/internal', '/private', '/debug', '/phpmyadmin', '/graphql',
-    // Spanish
-    '/administrador', '/iniciar-sesion', '/cuenta', '/privado', '/interno',
-    // French
-    '/administrateur', '/connexion', '/deconnexion', '/compte', '/prive', '/interne',
-    // German
-    '/administrator', '/anmelden', '/abmelden', '/konto', '/privat', '/intern',
-    // Chinese
-    '/guanli', '/denglu', '/tuichu', '/zhanghu', '/neibu', '/siwang', // Pinyin / common structures
-    // Russian
-    '/admin', '/vhod', '/vyhod', '/akkaunt', '/vnutrenniy', '/lichnyy'
+    '/administrador', '/iniciar-sesion', '/cuenta', '/privado', '/interno',           // ES
+    '/administrateur', '/connexion', '/deconnexion', '/compte', '/prive', '/interne', // FR
+    '/administrator', '/anmelden', '/abmelden', '/konto', '/privat', '/intern',       // DE
+    '/guanli', '/denglu', '/tuichu', '/zhanghu', '/neibu', '/siwang',                 // CN
+    '/admin', '/vhod', '/vyhod', '/akkaunt', '/vnutrenniy', '/lichnyy'                // RU
   ],
   SENSITIVE_PARAMS: [
     'token', 'auth', 'key', 'password', 'pwd', 'session', 'redirect', 'jwt', 'csrf', 'lostpassword', 'secret', 'api_key', 'apikey', 'access_token',
-    // Spanish
-    'clave', 'contrasena', 'contrasenia', 'sesion', 'redirigir', 'secreto',
-    // French
-    'cle', 'motdepasse', 'mdp', 'session', 'redirection', 'secret',
-    // German
-    'schluessel', 'passwort', 'kennwort', 'sitzung', 'weiterleitung', 'geheim',
-    // Chinese
-    'mi-ma', 'mima', 'yaoshi', 'miyue', 'huihua', 'chongzhi',
-    // Russian
-    'parol', 'klyuch', 'sessiya', 'sekret', 'perevod', 'sbros'
+    'clave', 'contrasena', 'contrasenia', 'sesion', 'redirigir', 'secreto',     // ES
+    'cle', 'motdepasse', 'mdp', 'session', 'redirection', 'secret',             // FR
+    'schluessel', 'passwort', 'kennwort', 'sitzung', 'weiterleitung', 'geheim', // DE
+    'mi-ma', 'mima', 'yaoshi', 'miyue', 'huihua', 'chongzhi',                   // CN
+    'parol', 'klyuch', 'sessiya', 'sekret', 'perevod', 'sbros'                  // RU
   ],
   SENSITIVE_METHODS: ['PUT', 'DELETE', 'PATCH'],
   TAG_RULES: {
@@ -35,7 +25,7 @@ const TAG_DETECTION = {
         'buscar', 'busqueda', 'texto', 'nombre', 'titulo', 'contenido', 'valor', // ES
         'recherche', 'chercher', 'mot', 'nom', 'titre', 'contenu', 'valeur',     // FR
         'suche', 'suchen', 'text', 'name', 'titel', 'inhalt', 'wert',            // DE
-        'sousuo', 'chaxun', 'mingzi', 'biaoti', 'neirong', 'zhi',                // CN (Pinyin/Common)
+        'sousuo', 'chaxun', 'mingzi', 'biaoti', 'neirong', 'zhi',                // CN
         'poisk', 'zapros', 'tekst', 'imya', 'nazvanie', 'znachenie', 'dannye'    // RU
       ], 
       methods: ['GET', 'POST'] 
@@ -44,7 +34,7 @@ const TAG_DETECTION = {
       params: [
         'id', 'user', 'uid', 'page', 'item', 'order', 'query', 'search', 'q', 'where', 'sql', 'sort', 'column', 'table', 'field', 'category', 'cat', 'type', 'group',
         // Multilingual additions
-        'usuario', 'pagina', 'articulo', 'orden', 'ordenar', 'columna', 'tabla', 'categoria', // ES
+        'usuario', 'pagina', 'articulo', 'orden', 'ordenar', 'columna', 'tabla', 'categoria',  // ES
         'utilisateur', 'page', 'article', 'ordre', 'trier', 'colonne', 'table', 'categorie',   // FR
         'benutzer', 'seite', 'artikel', 'sortieren', 'spalte', 'tabelle', 'kategorie',         // DE
         'yonghu', 'yemian', 'xiangmu', 'paixu', 'liebiao', 'fenlei',                           // CN
@@ -64,7 +54,7 @@ const TAG_DETECTION = {
       ], 
       paths: [
         '/view', '/download', '/render', '/read', '/include',
-        '/vista', '/descargar', '/leer', // ES
+        '/vista', '/descargar', '/leer',  // ES
         '/vue', '/telecharger', '/lire',  // FR
         '/ansicht', '/laden', '/lesen',   // DE
         '/chakan', '/xiazai',             // CN
@@ -76,11 +66,11 @@ const TAG_DETECTION = {
       params: [
         'id', 'user_id', 'account_id', 'order_id', 'uid', 'pid', 'profile_id', 'doc_id', 'invoice_id', 'record_id',
         // Multilingual additions
-        'id_usuario', 'id_cuenta', 'id_pedido', 'id_factura', // ES
+        'id_usuario', 'id_cuenta', 'id_pedido', 'id_factura',       // ES
         'id_utilisateur', 'id_compte', 'id_commande', 'id_facture', // FR
-        'benutzer_id', 'konto_id', 'auftrag_id', 'rechnung_id', // DE
-        'yonghu_id', 'zhanghu_id', 'dingdan_id', // CN
-        'id_polzovatelya', 'id_akkaunta', 'id_zakaza', 'id_scheta' // RU
+        'benutzer_id', 'konto_id', 'auftrag_id', 'rechnung_id',     // DE
+        'yonghu_id', 'zhanghu_id', 'dingdan_id',                    // CN
+        'id_polzovatelya', 'id_akkaunta', 'id_zakaza', 'id_scheta'  // RU
       ], 
       methods: ['GET', 'PUT', 'DELETE'] 
     },
@@ -88,11 +78,11 @@ const TAG_DETECTION = {
       params: [
         'cmd', 'exec', 'command', 'run', 'execute', 'ping', 'func', 'module', 'load', 'process', 'shell', 'code', 'eval', 'ip', 'host', 'daemon',
         // Multilingual additions
-        'comando', 'ejecutar', 'cargar', 'proceso', 'codigo', // ES
-        'commande', 'executer', 'charger', 'processus', 'code', // FR
-        'befehl', 'ausfuehren', 'laden', 'prozess', 'code', // DE
-        'mingling', 'zhixing', 'jiazai', 'daima', // CN
-        'komanda', 'vypolnit', 'zapusk', 'kod', 'process' // RU
+        'comando', 'ejecutar', 'cargar', 'proceso', 'codigo',    // ES
+        'commande', 'executer', 'charger', 'processus', 'code',  // FR
+        'befehl', 'ausfuehren', 'laden', 'prozess', 'code',      // DE
+        'mingling', 'zhixing', 'jiazai', 'daima',                // CN
+        'komanda', 'vypolnit', 'zapusk', 'kod', 'process'        // RU
       ], 
       methods: ['GET', 'POST'] 
     },
@@ -100,11 +90,11 @@ const TAG_DETECTION = {
       params: [
         'url', 'uri', 'link', 'src', 'target', 'dest', 'source', 'callback', 'webhook', 'redirect', 'to', 'out', 'view', 'dir', 'path', 'domain', 'host', 'port', 'feed', 'validate', 'val', 'proxy', 'site', 'img_url', 'image_url',
         // Multilingual additions
-        'enlace', 'destino', 'origen', 'redirigir', 'dominio', 'puerto', 'sitio', // ES
-        'lien', 'destination', 'source', 'redirection', 'domaine', 'port', 'site', // FR
-        'link', 'ziel', 'quelle', 'weiterleitung', 'domaene', 'hafen', 'seite', // DE
+        'enlace', 'destino', 'origen', 'redirigir', 'dominio', 'puerto', 'sitio',   // ES
+        'lien', 'destination', 'source', 'redirection', 'domaine', 'port', 'site',  // FR
+        'link', 'ziel', 'quelle', 'weiterleitung', 'domaene', 'hafen', 'seite',     // DE
         'lianjie', 'mubiao', 'laiyuan', 'daohang', 'yuming', 'duankou', 'wangzhan', // CN
-        'ssylka', 'cel', 'istochnik', 'domen', 'port', 'sayt' // RU
+        'ssylka', 'cel', 'istochnik', 'domen', 'port', 'sayt'                       // RU
       ], 
       methods: ['GET', 'POST'] 
     },
@@ -112,10 +102,10 @@ const TAG_DETECTION = {
       paths: [
         '/admin', '/auth', '/login', '/account', '/internal', '/dashboard', '/manage', '/settings',
         // Multilingual additions
-        '/configuracion', '/gestion', '/panel', // ES
+        '/configuracion', '/gestion', '/panel',           // ES
         '/configuration', '/gestion', '/tableau-de-bord', // FR
-        '/einstellungen', '/verwaltung', '/dashboard', // DE
-        '/shezhi', '/guanli', '/mianban', // CN
+        '/einstellungen', '/verwaltung', '/dashboard',    // DE
+        '/shezhi', '/guanli', '/mianban',                 // CN
         '/nastroyki', '/upravlenie', '/panel-upravleniya' // RU
       ], 
       methods: ['PUT', 'DELETE'], 
@@ -123,10 +113,10 @@ const TAG_DETECTION = {
         'lostpassword', 'recover', 'reset', 'reset_password', 'forgot', 'password_reset',
         // Multilingual additions
         'recuperar', 'restablecer', 'olvido', 'cambiar_contrasena', // ES
-        'recuperer', 'reinitialiser', 'oublie', 'changement_mdp', // FR
-        'wiederherstellen', 'zuruecksetzen', 'vergessen', // DE
-        'zhaohui', 'chongzhi', 'wangji', // CN
-        'vosstanovit', 'sbros', 'zabyl', 'sbros_parolya' // RU
+        'recuperer', 'reinitialiser', 'oublie', 'changement_mdp',   // FR
+        'wiederherstellen', 'zuruecksetzen', 'vergessen',           // DE
+        'zhaohui', 'chongzhi', 'wangji',                            // CN
+        'vosstanovit', 'sbros', 'zabyl', 'sbros_parolya'            // RU
       ] 
     }
   },
